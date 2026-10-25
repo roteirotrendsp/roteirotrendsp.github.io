@@ -33,7 +33,7 @@
   };
   const store = { get:k => { try { return localStorage.getItem(k); } catch(e) { return null; } },
                   set:(k,v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch(e) {} } };
-  { const s = store.get("trends-screen"); if (s && s !== "nova") S.screen = s; }
+  { const s = store.get("trends-screen"); if (["feed","agenda","videos"].includes(s)) S.screen = s; }
   S.grupo = store.get("trends-grupo");
   S.onlyMine = store.get("trends-minhas") === "1";
   // Link de convite: ?convite=CODIGO — guardado até a pessoa entrar com o Google
@@ -201,7 +201,7 @@
     } finally { exLoading = false; }
   }
   // Atualiza a cada 12 s com o app aberto (sem conexão ao vivo, que tem limite no plano grátis)
-  const refresh = () => { loadAll(); if (S.screen === "explorar" || S.screen === "feed") loadExplorar(); };
+  const refresh = () => loadAll();
   setInterval(() => { if (S.uid && !document.hidden) refresh(); }, 12000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && S.uid) refresh(); });
   async function setSession(session) {
@@ -210,7 +210,7 @@
     S.uid = uid; S.user = session ? session.user : null; S.loaded = false; S.me = null; lastSig = "";
     S.sheet = null; S.viewer = null; S.form = null;
     if (!uid) { render(); return; }
-    render(); await loadAll(); loadExplorar();
+    render(); await loadAll();
     S.sb.rpc("sou_admin").then(({data}) => { S.admin = data === true; render(); });
   }
   function switchGroup(id) {
@@ -610,13 +610,7 @@
               el("a",{class:"lnk",href:gcalUrl(t),target:"_blank",rel:"noopener"},"+ Agenda"),
               t.local ? el("a",{class:"lnk",href:"https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(t.local),target:"_blank",rel:"noopener"},"Mapa") : null,
               temVideos() ? el("button",{class:"lnk",onclick:() => { S.sheet = {type:"enviar", itemId:t.id}; render(); }},"Enviar vídeo") : null,
-              t.owner === S.uid ? el("button",{class:"lnk",onclick:() => { S.sheet = {type:"trend", trend:t}; render(); }},"Editar") : null,
-              t.copia_explorar ? el("span",{class:"lnk",style:{color:"#7A7270"},text:"veio do Explorar"}) : null,
-              t.owner === S.uid && safeTiktok(t.ref_link) && !t.copia_explorar
-                ? (S.myPubs[t.id]
-                    ? el("button",{class:"lnk",style:{color: S.myPubs[t.id].oculta ? "#FF6B6B" : "#C9B3EE"},onclick:() => { S.sheet = {type:"publicada", trend:t}; render(); }}, S.myPubs[t.id].oculta ? "Oculta por denúncias" : "No Explorar ✓")
-                    : el("button",{class:"lnk",style:{color:"#C9B3EE"},onclick:() => { S.sheet = {type:"publicar", trend:t}; render(); }},"Mostrar no Explorar"))
-                : null)));
+              t.owner === S.uid ? el("button",{class:"lnk",onclick:() => { S.sheet = {type:"trend", trend:t}; render(); }},"Editar") : null)));
       }) : el("div",{class:"empty",text: all.length ? "Nenhuma trend com esse status." : "Nenhuma trend ainda. Toque no + para adicionar a primeira."}));
   }
 
@@ -775,7 +769,7 @@
   }
 
   function navBar() {
-    const def = [["feed","Roteiro"],["agenda","Agenda"],["nova","Nova"],["explorar","Explorar"],["votacao","Votação"]];
+    const def = [["feed","Roteiro"],["agenda","Agenda"],["nova","Nova"]];
     def.push(["videos","Vídeos"]);
     return el("nav",{class:"nav",style:{gridTemplateColumns:`repeat(${def.length},1fr)`}}, def.map(([k,l]) =>
       el("button",{class:(S.screen === k ? "on" : "") + (k === "nova" ? " plus" : ""), onclick:() => { if (k === "nova") { if (!isPremium() && S.trends.length >= 3) { S.sheet = {type:"premium", limite:"trend"}; render(); return; } S.form = null; S.editing = null; } go(k); }},
@@ -1158,7 +1152,7 @@
     else if (!S.grupo) nodes = [noGroupScreen()];
     else {
       if (S.screen === "nova" && !S.form) S.form = blankForm();
-      const view = {feed:feedScreen, explorar:explorarScreen, nova:novaScreen, videos:videosScreen, votacao:votacaoScreen, agenda:agendaScreen}[S.screen] || feedScreen;
+      const view = {feed:feedScreen, nova:novaScreen, videos:videosScreen, agenda:agendaScreen}[S.screen] || feedScreen;
       nodes = [el("div",{class:"scroll"}, view()), navBar(), sheetLayer(), viewerLayer()];
     }
     $root.replaceChildren(...nodes.filter(Boolean));
