@@ -90,6 +90,17 @@
   }
   const tiktokHandle = l => { const m = (l || "").match(/tiktok\.com\/(@[\w.\-]+)/); return m ? m[1] : "TikTok"; };
   const isTiktok = l => /^https?:\/\/([\w-]+\.)?tiktok\.com\//i.test((l || "").trim());
+  // Instagram: Reels e posts com vídeo (instagram.com/reel/CODIGO, /reels/, /p/, /tv/)
+  const igInfo = l => {
+    try {
+      const u = new URL((l || "").trim());
+      if (u.protocol !== "https:" || !/^(www\.)?instagram\.com$/i.test(u.hostname)) return null;
+      const m = u.pathname.match(/^\/(reels?|p|tv)\/([A-Za-z0-9_-]+)/); if (!m) return null;
+      const tipo = m[1].startsWith("reel") ? "reel" : m[1];
+      return {tipo, code:m[2], url:`https://www.instagram.com/${tipo}/${m[2]}/`};
+    } catch(e) { return null; }
+  };
+  const linkValido = l => !!(safeTiktok(l) || igInfo(l));
   // Só aceita links https de verdade do TikTok (bloqueia "javascript:" e outros truques)
   const safeTiktok = l => { try { const u = new URL((l || "").trim()); return u.protocol === "https:" && /(^|\.)tiktok\.com$/i.test(u.hostname) ? u.href : null; } catch(e) { return null; } };
   const videoUrl = path => S.sb.storage.from("videos").getPublicUrl(path).data.publicUrl;
@@ -288,7 +299,7 @@
   }
   async function submitTrend() {
     const f = S.form, e = {};
-    if (!safeTiktok(f.link)) e.link = "Cole um link do TikTok válido (começa com https://).";
+    if (!linkValido(f.link)) e.link = "Cole um link do TikTok ou do Instagram (Reels) válido, começando com https://.";
     if (!f.name.trim()) e.name = 1;
     if (!f.place.trim()) e.place = 1;
     S.errors = e;
@@ -296,7 +307,7 @@
     S.busy = true; render();
     const curto = await resolverTiktok(f.link);
     const row = { dia:f.day, categoria:"trend", titulo:f.name.trim(), musica:f.song.trim() || null, local:f.place.trim(),
-      participantes: S.editing ? f.people : S.membros.map(m => m.user_id), ref_link:(curto && curto.url) || safeTiktok(f.link) };
+      participantes: S.editing ? f.people : S.membros.map(m => m.user_id), ref_link:(igInfo(f.link) || {}).url || (curto && curto.url) || safeTiktok(f.link) };
     const r = S.editing
       ? await S.sb.from("itens").update(row).eq("id", S.editing)
       : await S.sb.from("itens").insert({id: uuid(), status:"a_gravar", grupo_id:S.grupo, ...row});
@@ -607,7 +618,14 @@
   const tiktokPlayer = (id, cls) => el("div",{class:cls || "embed"}, el("iframe",{
     src:`https://www.tiktok.com/player/v1/${id}?autoplay=0&music_info=1&description=1&rel=0`,
     allow:"encrypted-media; fullscreen; picture-in-picture", allowfullscreen:true, loading:"lazy", title:"Vídeo do TikTok"}));
+  // Player do Instagram (Reels/posts públicos)
+  const igPlayer = (ig, cls) => el("div",{class:(cls || "embed") + " ig"}, el("iframe",{
+    src:`https://www.instagram.com/${ig.tipo}/${ig.code}/embed/`, allow:"encrypted-media; fullscreen; picture-in-picture",
+    allowfullscreen:true, loading:"lazy", scrolling:"no", title:"Vídeo do Instagram"}),
+    el("a",{class:"igopen",href:ig.url,target:"_blank",rel:"noopener noreferrer"},"abrir no Instagram ↗"));
   function media(t) {
+    const ig = igInfo(t.ref_link);
+    if (ig) return igPlayer(ig);
     const id = tiktokId(t.ref_link);
     if (id) return tiktokPlayer(id);
     const href = safeTiktok(t.ref_link);
@@ -717,16 +735,16 @@
   }
 
   function novaScreen() {
-    const f = S.form, e = S.errors, lid = tiktokId(f.link);
+    const f = S.form, e = S.errors, lid = tiktokId(f.link), ig = igInfo(f.link);
     const input = (key, id, ph, cls) => el("input",{class:"input " + (cls || ""), id, value:f[key], placeholder:ph, maxlength: key === "link" ? "500" : "120",
-      oninput:ev => { const before = tiktokId(f.link) + "|" + isTiktok(f.link); f[key] = ev.target.value; if (e[key]) { e[key] = null; render(); } else if (key === "link" && before !== tiktokId(f.link) + "|" + isTiktok(f.link)) render(); }});
+      oninput:ev => { const before = tiktokId(f.link) + "|" + isTiktok(f.link) + "|" + ((igInfo(f.link) || {}).code || ""); f[key] = ev.target.value; if (e[key]) { e[key] = null; render(); } else if (key === "link" && before !== tiktokId(f.link) + "|" + isTiktok(f.link) + "|" + ((igInfo(f.link) || {}).code || "")) render(); }});
     return el("div",{class:"stack",style:{gap:"18px"}},
       el("div",{class:"head",style:{alignItems:"center"}},
         el("h1",{class:"h1",text: S.editing ? "Editar trend" : "Nova trend"}),
         el("button",{class:"close","aria-label":"Fechar",onclick:() => go("feed")},"✕")),
-      el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Link do TikTok"}),
+      el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Link do TikTok ou do Instagram"}),
         input("link","f-link","https://www.tiktok.com/@.../video/...", e.link ? "bad" : lid ? "good" : ""),
-        e.link ? el("span",{class:"err",text:e.link}) : lid ? [el("span",{class:"ok",text:"Vídeo reconhecido · é assim que vai aparecer no card"}), tiktokPlayer(lid, "embed preview")]
+        e.link ? el("span",{class:"err",text:e.link}) : ig ? [el("span",{class:"ok",text:"Vídeo do Instagram reconhecido · é assim que vai aparecer no card"}), igPlayer(ig, "embed preview")] : lid ? [el("span",{class:"ok",text:"Vídeo reconhecido · é assim que vai aparecer no card"}), tiktokPlayer(lid, "embed preview")]
           : f.link && safeTiktok(f.link) ? ((c => { resolverTiktok(f.link); return el("span",{class:"ok",text: c && c.ok ? "Não achamos o vídeo desse link. Confira se o link está certo." : "Buscando o vídeo…"}); })(tkCache[safeTiktok(f.link)])) : null),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Nome da trend"}), input("name","f-name","Ex.: coreô do refrão na fila", e.name ? "bad" : "")),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Música"}), input("song","f-song","Ex.: SWIM — BTS")),

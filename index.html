@@ -7,7 +7,7 @@
 <meta name="description" content="Planejem, votem e gravem as trends do grupo na semana do show em São Paulo.">
 <meta name="theme-color" content="#0E0C0C">
 <meta name="color-scheme" content="dark">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; media-src https://gjyqwzseemmqlnovffqp.supabase.co blob:; connect-src https://gjyqwzseemmqlnovffqp.supabase.co wss://gjyqwzseemmqlnovffqp.supabase.co; frame-src https://www.tiktok.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; media-src https://gjyqwzseemmqlnovffqp.supabase.co blob:; connect-src https://gjyqwzseemmqlnovffqp.supabase.co wss://gjyqwzseemmqlnovffqp.supabase.co; frame-src https://www.tiktok.com https://www.instagram.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -106,6 +106,10 @@ button:active{transform:scale(.98)}
 .chip.on{background:var(--white);color:var(--ink);border-color:var(--white)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden}
 .embed{height:580px;max-height:78vh;background:#000}
+.embed.ig{position:relative;height:620px;max-height:80vh;background:#fff}
+.embed.ig iframe{height:calc(100% - 38px)}
+.igopen{display:flex;align-items:center;justify-content:center;height:38px;background:var(--card);border-top:1px solid var(--line);color:var(--lilac);font-family:var(--mono);font-size:12px;text-decoration:none}
+.embed.ig.preview{height:520px}
 .embed.preview{height:420px;border-radius:16px;overflow:hidden;border:1px solid var(--line)}
 a.poster{text-decoration:none}
 .embed iframe{width:100%;height:100%;border:0;display:block}
