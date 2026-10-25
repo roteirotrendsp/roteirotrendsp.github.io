@@ -11,6 +11,8 @@
   const NEXT = {a_gravar:"gravado", gravado:"postado", postado:"a_gravar"};
   const VENUE = "Estádio do MorumBIS, Praça Roberto Gomes Pedrosa, 1, Morumbi, São Paulo - SP";
   const MAX_VIDEO = 50 * 1024 * 1024;
+  const MAX_POR_PESSOA = 5;
+  const fmtDur = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
   const ICONS = {
     feed:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
@@ -29,7 +31,7 @@
     pubs:[], reacoes:[], minhasDen:new Set(), myPubs:{}, exOrdem:"alta", exDia:"todos", exLoaded:false,
     profiles:{}, trends:[], votos:[], videos:[], videosMissing:false, coments:[], reacItem:[], curtidas:[], curtidasOff:false, comMissing:false,
     screen:"videos", filter:"todas", day:null, toast:null,
-    form:null, errors:{}, editing:null, sheet:null, viewer:null, busy:false
+    form:null, errors:{}, editing:null, sheet:null, viewer:null, viewerAsk:false, durs:{}, busy:false
   };
   const store = { get:k => { try { return localStorage.getItem(k); } catch(e) { return null; } },
                   set:(k,v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch(e) {} } };
@@ -234,7 +236,7 @@
     render(); const sc = document.querySelector(".scroll"); if (sc) sc.scrollTop = 0;
   };
   const blankForm = (day) => ({link:"", name:"", song:"", day: day || (DAYS.includes(todaySP()) ? todaySP() : DAYS[0]), place:"", people:[S.uid]});
-  const canStatus = t => t.owner === S.uid || (t.participantes || []).includes(S.uid);
+  const canStatus = () => true;
   async function cycle(t) {
     if (!canStatus(t)) return;
     const next = NEXT[t.status || "a_gravar"];
@@ -247,12 +249,11 @@
     if (!safeTiktok(f.link)) e.link = "Cole um link do TikTok válido (começa com https://).";
     if (!f.name.trim()) e.name = 1;
     if (!f.place.trim()) e.place = 1;
-    if (!f.people.length) e.people = "Escolha pelo menos uma amiga.";
     S.errors = e;
     if (Object.keys(e).length) return render();
     S.busy = true; render();
     const row = { dia:f.day, categoria:"trend", titulo:f.name.trim(), musica:f.song.trim() || null, local:f.place.trim(),
-      participantes:f.people, ref_link:safeTiktok(f.link) };
+      participantes: S.editing ? f.people : S.membros.map(m => m.user_id), ref_link:safeTiktok(f.link) };
     const r = S.editing
       ? await S.sb.from("itens").update(row).eq("id", S.editing)
       : await S.sb.from("itens").insert({id: uuid(), status:"a_gravar", grupo_id:S.grupo, ...row});
@@ -533,7 +534,7 @@
           }},"Copiar"))),
       el("div",{class:"stack",style:{gap:"12px"}},
         el("button",{class:"btn-red",style:{height:"68px",fontSize:"20px",fontWeight:900,fontStretch:"85%",textTransform:"uppercase",letterSpacing:".02em"},onclick:() => shareInvite(g)},"Convidar amigas"),
-        el("button",{class:"lnk",style:{alignSelf:"center",padding:"6px"},onclick:() => { S.criado = null; S.screen = "feed"; render(); }},"Ir para o roteiro")));
+        el("button",{class:"lnk",style:{alignSelf:"center",padding:"6px"},onclick:() => { S.criado = null; S.screen = "videos"; render(); }},"Ir para o app")));
   }
   const groupPill = () => { const g = curGroup(); if (!g) return null;
     return el("button",{class:"chip",style:{alignSelf:"flex-start",display:"flex",alignItems:"center",gap:"8px",height:"38px"},onclick:() => { S.sheet = {type:"grupo"}; render(); }},
@@ -570,9 +571,10 @@
 
   function feedScreen() {
     const order = t => DAYS.indexOf(t.dia);
-    const all = [...S.trends].filter(t => !S.onlyMine || t.owner === S.uid).sort((a,b) => order(a) - order(b));
-    const list = all.filter(t => S.filter === "todas" || (t.status || "a_gravar") === S.filter);
-    const counts = k => k === "todas" ? all.length : all.filter(t => (t.status || "a_gravar") === k).length;
+    const all = [...S.trends].sort((a,b) => order(a) - order(b));
+    const match = (t, k) => k === "todas" || (k === "minhas" ? t.owner === S.uid : (t.status || "a_gravar") === k);
+    const list = all.filter(t => match(t, S.filter));
+    const counts = k => all.filter(t => match(t, k)).length;
     let installHint = null;
     try {
       const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
@@ -589,10 +591,7 @@
       topBar(),
       installHint,
       el("div",{class:"chips"},
-        el("button",{class:"chip" + (S.onlyMine ? " on" : ""), style:{borderColor: S.onlyMine ? null : PURPLE}, "aria-pressed":String(!!S.onlyMine),
-          onclick:() => { S.onlyMine = !S.onlyMine; store.set("trends-minhas", S.onlyMine ? "1" : null); render(); }}, "Só as minhas ",
-          el("span",{text:String(S.trends.filter(t => t.owner === S.uid).length)})),
-        [["todas","Todas"],["a_gravar","A gravar"],["gravado","Gravado"],["postado","Postado"]].map(([k,l]) =>
+        [["minhas","Só as minhas"],["todas","Todas"],["a_gravar","A gravar"],["gravado","Gravado"],["postado","Postado"]].map(([k,l]) =>
         el("button",{class:"chip" + (S.filter === k ? " on" : ""), onclick:() => { S.filter = k; render(); }}, l + " ", el("span",{text:String(counts(k))})))),
       list.length ? list.map(t => {
         const ids = (t.participantes || []).filter(u => S.profiles[u]);
@@ -605,13 +604,9 @@
                 t.musica ? el("div",{class:"song",text:"♪ " + t.musica}) : null),
               statusBtn(t)),
             el("div",{class:"tags"}, el("span",{class:"tag mono",text:dayLabel(t.dia)}), t.local ? el("span",{class:"tag",text:t.local}) : null),
-            el("div",{class:"crew"}, crew(ids), el("span",{text: ids.length && ids.length === groupSize() ? "o grupo todo" : `${ids.length} ${ids.length === 1 ? "vai" : "vão"} gravar · ideia de ${nameOf(t.owner)}`})),
+            el("div",{class:"crew"}, crew(ids.length ? ids : orderedPeople().map(p => p.id)), el("span",{text:`ideia de ${nameOf(t.owner)}`})),
             socialRow(t),
-            el("div",{class:"more"},
-              el("a",{class:"lnk",href:gcalUrl(t),target:"_blank",rel:"noopener"},"+ Agenda"),
-              t.local ? el("a",{class:"lnk",href:"https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(t.local),target:"_blank",rel:"noopener"},"Mapa") : null,
-              temVideos() ? el("button",{class:"lnk",onclick:() => { S.sheet = {type:"enviar", itemId:t.id}; render(); }},"Enviar vídeo") : null,
-              t.owner === S.uid ? el("button",{class:"lnk",onclick:() => { S.sheet = {type:"trend", trend:t}; render(); }},"Editar") : null)));
+            t.owner === S.uid ? el("button",{class:"lnk",style:{alignSelf:"flex-start",fontSize:"12.5px"},onclick:() => { S.sheet = {type:"trend", trend:t}; render(); }},"Editar ou apagar") : null));
       }) : el("div",{class:"empty",text: all.length ? "Nenhuma trend com esse status." : "Nenhuma trend ainda. Toque no + para adicionar a primeira."}));
   }
 
@@ -689,12 +684,6 @@
       el("div",{class:"field"}, el("span",{class:"eyebrow",text:"Dia"}),
         el("div",{class:"days"}, DAYS.map(d => el("button",{class:"day" + (f.day === d ? " on" : ""), onclick:() => { f.day = d; render(); }}, el("small",{text:wd(d)}), el("b",{text:dd(d)}))))),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Local"}), input("place","f-place","Ex.: Fila do portão B, MorumBIS", e.place ? "bad" : "")),
-      el("div",{class:"field"}, el("span",{class:"eyebrow",text:"Quem vai gravar"}),
-        el("div",{class:"people"}, orderedPeople().map(p => {
-          const on = f.people.includes(p.id);
-          return el("button",{class:"person" + (on ? " on" : ""), onclick:() => { f.people = on ? f.people.filter(x => x !== p.id) : [...f.people, p.id]; if (e.people) e.people = null; render(); }}, av(p.id), p.nome);
-        })),
-        e.people ? el("span",{class:"err",text:e.people}) : null),
       el("button",{class:"btn-red",disabled:S.busy,onclick:submitTrend,style:{marginTop:"4px"}}, S.busy ? "Salvando…" : S.editing ? "Salvar alterações" : "Adicionar ao roteiro"));
   }
 
@@ -704,19 +693,30 @@
       if (!f) return;
       if (S.trends.length) { S.sheet = {type:"qualtrend", file:f}; render(); } else uploadVideo(f, null);
     }});
-    return el("div",{class:"stack"},
+    const meus = S.videos.filter(v => v.owner === S.uid).length, cheio = meus >= MAX_POR_PESSOA, n = S.videos.length;
+    return el("div",{class:"stack",style:{gap:"14px"}},
       topBar(),
-      el("div",{}, el("div",{class:"eyebrow",style:{color:PURPLE},text:`${S.videos.length} ${S.videos.length === 1 ? "VÍDEO" : "VÍDEOS"} DO GRUPO`}), el("h1",{class:"h1",text:"Nossos vídeos"})),
       S.videosMissing ? el("div",{class:"empty",text:"A galeria ainda não foi ativada no banco."}) : null,
-      temVideos()
-        ? [el("button",{class:"upload",disabled:S.videosMissing,onclick:() => file.click()},"+ Enviar vídeo"), file]
-        : el("button",{class:"upload",onclick:() => { S.sheet = {type:"premium"}; render(); }},"⭐ Enviar vídeo · Premium"),
-      S.videos.length ? el("div",{class:"grid2"}, S.videos.map(v => {
+      el("button",{class:"bigupload" + (cheio ? " full" : ""),disabled:S.videosMissing,onclick:() => {
+        if (cheio) return flash(`Você já enviou ${MAX_POR_PESSOA} vídeos. Apague um para enviar outro.`);
+        file.click();
+      }}, cheio ? `Limite de ${MAX_POR_PESSOA} vídeos atingido` : "+ Enviar vídeo"), file,
+      el("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:"12px"}},
+        el("span",{class:"sk",text: n === 1 ? "1 VÍDEO DO GRUPO" : `${n} VÍDEOS DO GRUPO`}),
+        el("span",{class:"mono",style:{fontSize:"11px",color: cheio ? "#FF5A61" : "#7A7270"},text:`${meus} de ${MAX_POR_PESSOA} vídeos enviados`})),
+      n ? el("div",{class:"grid2"}, S.videos.map(v => {
         const [bg, fg] = colorOf(v.owner);
-        return el("button",{class:"vtile",onclick:() => { S.viewer = v; render(); }},
-          el("video",{src:videoUrl(v.path) + "#t=0.1", muted:true, playsInline:true, preload:"metadata"}),
+        return el("button",{class:"vtile",onclick:() => { S.viewer = v; S.viewerAsk = false; render(); }},
+          el("video",{src:videoUrl(v.path) + "#t=0.1", muted:true, playsInline:true, preload:"metadata",
+            onloadedmetadata:e => { const d = e.target.duration; if (isFinite(d)) { S.durs[v.id] = fmtDur(d); const b = e.target.parentNode.querySelector(".dur"); if (b) b.textContent = S.durs[v.id]; } }}),
+          el("span",{class:"dur",text:S.durs[v.id] || ""}),
           el("div",{class:"cap"}, el("div",{class:"av",style:{background:bg,color:fg},text:initial(v.owner)}), el("div",{text:v.titulo || "Vídeo"})));
-      })) : (S.videosMissing || !(temVideos()) ? null : el("div",{class:"empty",text:"Nenhum vídeo ainda. Grave uma trend e envie aqui."})));
+      }))
+      : S.videosMissing ? null
+      : el("div",{class:"vempty"},
+          el("div",{class:"phone",text:"▶"}),
+          el("span",{class:"stt",style:{fontSize:"32px"},text:"Nenhum vídeo ainda"}),
+          el("span",{style:{fontSize:"15px",lineHeight:"1.45",color:"#A39C98",maxWidth:"260px"},text:"Gravou uma trend? Envie o primeiro vídeo e ele aparece aqui para o grupo todo."})));
   }
 
   function votacaoScreen() {
@@ -769,7 +769,7 @@
   }
 
   function navBar() {
-    const def = [["videos","Vídeos"],["feed","Roteiro"],["nova","Nova"],["agenda","Agenda"]];
+    const def = [["videos","Vídeos"],["feed","Roteiro"],["nova",""],["agenda","Agenda"]];
     return el("nav",{class:"nav",style:{gridTemplateColumns:`repeat(${def.length},1fr)`}}, def.map(([k,l]) =>
       el("button",{class:(S.screen === k ? "on" : "") + (k === "nova" ? " plus" : ""), onclick:() => { if (k === "nova") { if (!isPremium() && S.trends.length >= 3) { S.sheet = {type:"premium", limite:"trend"}; render(); return; } S.form = null; S.editing = null; } go(k); }},
         el("span",{class:"ic",html:ICONS[k]}), el("span",{text:l}))));
@@ -1116,16 +1116,27 @@
 
   function viewerLayer() {
     const v = S.viewer; if (!v) return null;
-    return el("div",{class:"viewer"},
-      el("div",{class:"bar"},
-        el("div",{style:{display:"flex",alignItems:"center",gap:"10px",minWidth:0}}, av(v.owner), el("div",{style:{fontWeight:700,overflowWrap:"anywhere"},text:v.titulo || "Vídeo"})),
-        el("button",{class:"close","aria-label":"Fechar",onclick:() => { S.viewer = null; render(); }},"✕")),
+    const meu = v.owner === S.uid;
+    const fechar = () => { S.viewer = null; S.viewerAsk = false; render(); };
+    return el("div",{class:"viewer2"},
       el("video",{src:videoUrl(v.path), controls:true, autoplay:true, playsInline:true}),
-      el("div",{class:"info"},
-        el("span",{class:"mono",style:{fontSize:"12px",color:"#A39C98"},text:`enviado por ${nameOf(v.owner)}`}),
-        el("div",{style:{display:"flex",gap:"16px"}},
-          el("a",{class:"lnk",href:videoUrl(v.path),target:"_blank",rel:"noopener"},"Abrir em tela cheia"),
-          v.owner === S.uid ? el("button",{class:"lnk danger",onclick:() => deleteVideo(v)},"Apagar") : null)));
+      el("div",{class:"vtop"},
+        el("span",{class:"mono vdur",text:S.durs[v.id] || ""}),
+        el("button",{class:"vclose","aria-label":"Fechar",onclick:fechar},"✕")),
+      el("div",{class:"vbottom"},
+        el("div",{style:{display:"flex",alignItems:"center",gap:"10px"}},
+          av(v.owner, {width:"36px",height:"36px",fontSize:"14px",border:"0"}),
+          el("div",{style:{display:"flex",flexDirection:"column",gap:"2px"}},
+            el("span",{style:{fontSize:"15px",fontWeight:800},text: meu ? `${nameOf(v.owner)} (você)` : nameOf(v.owner)}),
+            el("span",{class:"mono",style:{fontSize:"10px",color:"#A39C98"},text:quando(v.created_at)}))),
+        el("span",{class:"stt",style:{fontSize:"30px",lineHeight:".95"},text:v.titulo || "Vídeo"}),
+        meu ? (S.viewerAsk
+          ? el("div",{class:"vask"},
+              el("span",{style:{fontSize:"15px",fontWeight:700},text:"Apagar este vídeo para o grupo todo?"}),
+              el("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}},
+                el("button",{class:"btn-line",style:{height:"44px"},onclick:() => { S.viewerAsk = false; render(); }},"Cancelar"),
+                el("button",{class:"btn-red",style:{height:"44px",fontSize:"15px"},onclick:() => { S.viewerAsk = false; deleteVideo(v); }},"Apagar")))
+          : el("button",{class:"vdel",onclick:() => { S.viewerAsk = true; render(); }},"Apagar")) : null));
   }
 
   // ——— Render ———
@@ -1133,7 +1144,7 @@
   let pending = false;
   function softRender() {
     const a = document.activeElement;
-    if (a && a.tagName === "IFRAME") { pending = true; return; }
+    if ((a && a.tagName === "IFRAME") || S.viewer) { pending = true; return; }
     render();
   }
   addEventListener("focus", () => { if (pending) { pending = false; render(); } });
