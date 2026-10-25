@@ -618,6 +618,16 @@
   const tiktokPlayer = (id, cls) => el("div",{class:cls || "embed"}, el("iframe",{
     src:`https://www.tiktok.com/player/v1/${id}?autoplay=0&music_info=1&description=1&rel=0`,
     allow:"encrypted-media; fullscreen; picture-in-picture", allowfullscreen:true, loading:"lazy", title:"Vídeo do TikTok"}));
+  // Etiqueta da plataforma (TikTok ou Instagram)
+  const ICO_TIKTOK = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.6 2h-3.3v13.2a2.9 2.9 0 1 1-2.9-2.9c.3 0 .6 0 .9.1V9a6.3 6.3 0 1 0 5.3 6.2V8.6A7.6 7.6 0 0 0 21 10V6.7a4.4 4.4 0 0 1-4.4-4.7z"/></svg>';
+  const ICO_INSTA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.4" cy="6.6" r="1.2" fill="currentColor" stroke="none"/></svg>';
+  const plataforma = l => igInfo(l) ? "instagram" : safeTiktok(l) ? "tiktok" : null;
+  const platTag = (l, compacta) => {
+    const p = plataforma(l); if (!p) return null;
+    return el("span",{class:"plat " + p, title: p === "instagram" ? "Instagram" : "TikTok"},
+      el("span",{class:"pi",html: p === "instagram" ? ICO_INSTA : ICO_TIKTOK}), compacta ? null : (p === "instagram" ? "Instagram" : "TikTok"));
+  };
+
   // Player do Instagram (Reels/posts públicos)
   const igPlayer = (ig, cls) => el("div",{class:(cls || "embed") + " ig"}, el("iframe",{
     src:`https://www.instagram.com/${ig.tipo}/${ig.code}/embed/`, allow:"encrypted-media; fullscreen; picture-in-picture",
@@ -670,7 +680,7 @@
                 el("div",{class:"tname",text:t.titulo}),
                 t.musica ? el("div",{class:"song",text:"♪ " + t.musica}) : null),
               statusBtn(t)),
-            el("div",{class:"tags"}, el("span",{class:"tag mono",text:dayLabel(t.dia)}), t.local ? el("span",{class:"tag",text:t.local}) : null),
+            el("div",{class:"tags"}, platTag(t.ref_link), el("span",{class:"tag mono",text:dayLabel(t.dia)}), t.local ? el("span",{class:"tag",text:t.local}) : null),
             el("div",{class:"crew"}, crew(ids.length ? ids : orderedPeople().map(p => p.id)), el("span",{text:`ideia de ${nameOf(t.owner)}`})),
             socialRow(t),
             t.owner === S.uid ? el("button",{class:"lnk",style:{alignSelf:"flex-start",fontSize:"12.5px"},onclick:() => { S.sheet = {type:"trend", trend:t}; render(); }},"Editar ou apagar") : null));
@@ -744,7 +754,7 @@
         el("button",{class:"close","aria-label":"Fechar",onclick:() => go("feed")},"✕")),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Link do TikTok ou do Instagram"}),
         input("link","f-link","https://www.tiktok.com/@.../video/...", e.link ? "bad" : lid ? "good" : ""),
-        e.link ? el("span",{class:"err",text:e.link}) : ig ? [el("span",{class:"ok",text:"Vídeo do Instagram reconhecido · é assim que vai aparecer no card"}), igPlayer(ig, "embed preview")] : lid ? [el("span",{class:"ok",text:"Vídeo reconhecido · é assim que vai aparecer no card"}), tiktokPlayer(lid, "embed preview")]
+        e.link ? el("span",{class:"err",text:e.link}) : ig ? [el("span",{class:"ok",style:{display:"flex",alignItems:"center",gap:"8px"}}, platTag(f.link), "reconhecido · é assim que vai aparecer no card"), igPlayer(ig, "embed preview")] : lid ? [el("span",{class:"ok",style:{display:"flex",alignItems:"center",gap:"8px"}}, platTag(f.link), "reconhecido · é assim que vai aparecer no card"), tiktokPlayer(lid, "embed preview")]
           : f.link && safeTiktok(f.link) ? ((c => { resolverTiktok(f.link); return el("span",{class:"ok",text: c && c.ok ? "Não achamos o vídeo desse link. Confira se o link está certo." : "Buscando o vídeo…"}); })(tkCache[safeTiktok(f.link)])) : null),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Nome da trend"}), input("name","f-name","Ex.: coreô do refrão na fila", e.name ? "bad" : "")),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Música"}), input("song","f-song","Ex.: SWIM — BTS")),
@@ -828,7 +838,7 @@
       items.map(t => el("div",{class:"arow"},
         el("div",{class:"bar " + (t.status || "a_gravar")}),
         el("div",{style:{display:"flex",flexDirection:"column",gap:"4px",minWidth:0}},
-          el("span",{class:"n",text:t.titulo}),
+          el("span",{class:"n",style:{display:"flex",alignItems:"center",gap:"8px"}}, platTag(t.ref_link, true), el("span",{text:t.titulo})),
           t.local ? el("span",{class:"p",text:t.local}) : null,
           el("div",{style:{marginTop:"4px"}}, crew(t.participantes || []))),
         statusBtn(t))),
