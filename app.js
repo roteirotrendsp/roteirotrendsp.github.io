@@ -94,7 +94,8 @@
   const curGroup = () => S.grupos.find(g => g.id === S.grupo) || null;
   const showDate = () => (curGroup() && curGroup().show_dia) || SHOW;
   const inviteUrl = g => `${location.origin}${location.pathname}?convite=${g.codigo}`;
-  const isPremium = () => !!(curGroup() && (curGroup().premium || curGroup().videos_liberados));
+  // Sem premium: tudo liberado para todos os grupos
+  const isPremium = () => true;
   const temVideos = () => isPremium();
 
   // ——— Pix (QR Code estático com valor, pago na conta PJ; aprovação manual) ———
@@ -167,10 +168,7 @@
         const itemIds = new Set(idList);
         S.votos = v.data.filter(r => r.slot === r.item_id && itemIds.has(r.item_id));
         S.videosMissing = !!vid.error;
-        const pg = await S.sb.from("pagamentos").select("id,user_id,status,created_at,decidido_em").eq("grupo_id", S.grupo).order("created_at", {ascending:false});
-        S.pagamentos = pg.error ? [] : pg.data;
-        { const gg = S.grupos.find(x => x.id === S.grupo);
-          if (gg && gg.premium && S.pagamentos.some(p => p.status === "aprovado") && !store.get("trends-lib-" + gg.id)) { store.set("trends-lib-" + gg.id, "1"); S.liberado = gg; } }
+        S.pagamentos = [];
         S.videos = vid.error ? [] : vid.data;
       }
       S.loaded = true;
@@ -585,9 +583,7 @@
       el("div",{class:"topbar"},
         el("div",{class:"topbar-l"},
           el("button",{class:"grpbtn",onclick:() => { S.sheet = {type:"grupo"}; render(); }}, el("span",{class:"nm",text:g ? g.nome : ""}), el("span",{class:"car",text:"▼"})),
-          el("button",{class:"badge" + (isPremium() ? " prem" : emAnalise ? " wait" : ""),
-            onclick:() => { S.sheet = {type: isPremium() ? "grupo" : "premium"}; render(); }},
-            isPremium() ? "⭐ Premium" : emAnalise ? "Premium em análise" : "⭐ Premium · R$ 10")),
+          null),
         meButton()),
       el("div",{}, el("div",{class:"eyebrow",style:{color:RED},text:daysLeftText()}), el("h1",{class:"h1",text:"Roteiro"})),
       installHint,
@@ -835,7 +831,7 @@
             }},"Salvar"))),
         menu([
           ["Meu grupo e convites", () => go2({type:"grupo"})],
-          S.admin ? ["Pagamentos (admin)", () => go2({type:"admin"}), {right: pend ? `${pend} pendente${pend > 1 ? "s" : ""}` : "›", rightColor: pend ? RED : null}] : null,
+          null,
           ["Sair", async () => { S.sheet = null; await S.sb.auth.signOut(); }, {right:""}]
         ]),
         el("button",{class:"lnk danger",style:{alignSelf:"center",padding:"6px",fontSize:"13px"},onclick:() => go2({type:"excluir"})},"Excluir minha conta")];
@@ -853,7 +849,7 @@
       const dono = g.owner === S.uid, n = groupSize();
       content = [
         el("div",{style:{display:"flex",flexDirection:"column",gap:"8px"}},
-          el("div",{style:{display:"flex",gap:"8px",alignItems:"center"}}, sKick("SEU GRUPO"), isPremium() ? el("span",{class:"prempill",text:"⭐ Premium"}) : null),
+          el("div",{style:{display:"flex",gap:"8px",alignItems:"center"}}, sKick("SEU GRUPO")),
           el("span",{class:"stt",style:{fontSize:"44px",color:RED,overflowWrap:"anywhere"},text:g.nome}),
           el("span",{class:"mono",style:{fontSize:"12px",color:"#D8D1CD"},text:`SHOW ${dd(g.show_dia)}/10 · MORUMBIS · ${isPremium() ? `${n} ${n === 1 ? "PESSOA" : "PESSOAS"}` : `${n} DE 7 PESSOAS`}`})),
         el("button",{class:"btn-red bigcta",onclick:() => shareInvite(g)},"Convidar amigas"),
