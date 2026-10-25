@@ -418,7 +418,7 @@
         el("div",{class:"bar"}),
         el("div",{style:{display:"flex",gap:"8px",flexWrap:"wrap"}},
           el("span",{class:"pilltag",text: n === 1 ? "1 PESSOA JÁ ESTÁ LÁ" : `${n} PESSOAS JÁ ESTÃO LÁ`}),
-          el("span",{class:"pilltag",text:`SHOW ${dd(p.show_dia)}/10 · MORUMBIS`}))),
+          null)),
       el("div",{class:"stack",style:{gap:"14px"}},
         gBtn("Entrar com Google e participar"),
         el("button",{class:"lnk",style:{alignSelf:"center",padding:"6px"},onclick:() => { S.convitePrev = null; store.set("trends-convite", null); render(); }},"Não recebi convite")));
