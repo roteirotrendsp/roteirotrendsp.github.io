@@ -30,7 +30,7 @@
     grupos:[], grupo:null, membros:[],
     pubs:[], reacoes:[], minhasDen:new Set(), myPubs:{}, exOrdem:"alta", exDia:"todos", exLoaded:false,
     profiles:{}, trends:[], votos:[], videos:[], videosMissing:false, coments:[], reacItem:[], curtidas:[], curtidasOff:false, comMissing:false,
-    screen:"videos", filter:"todas", day:null, toast:null,
+    screen:"feed", filter:"todas", day:null, toast:null,
     form:null, errors:{}, editing:null, sheet:null, viewer:null, viewerAsk:false, durs:{}, notifs:[], notifNomes:{}, busy:false
   };
   const store = { get:k => { try { return localStorage.getItem(k); } catch(e) { return null; } },
@@ -275,7 +275,7 @@
   function switchGroup(id) {
     S.grupo = id; store.set("trends-grupo", id); S.sheet = null; S.filter = "todas"; S.day = null;
     S.trends = []; S.votos = []; S.videos = []; S.membros = []; S.profiles = {}; lastSig = "";
-    S.screen = "videos"; render(); loadAll();
+    S.screen = "feed"; render(); loadAll();
   }
   async function shareInvite(g) {
     const url = inviteUrl(g), text = `Entra no nosso grupo “${g.nome}” no Roteiro de Trends! Código: ${fmtCode(g.codigo)}`;
@@ -593,7 +593,7 @@
           }},"Copiar"))),
       el("div",{class:"stack",style:{gap:"12px"}},
         el("button",{class:"btn-red",style:{height:"68px",fontSize:"20px",fontWeight:900,fontStretch:"85%",textTransform:"uppercase",letterSpacing:".02em"},onclick:() => shareInvite(g)},"Convidar amigas"),
-        el("button",{class:"lnk",style:{alignSelf:"center",padding:"6px"},onclick:() => { S.criado = null; S.screen = "videos"; render(); }},"Ir para o app")));
+        el("button",{class:"lnk",style:{alignSelf:"center",padding:"6px"},onclick:() => { S.criado = null; S.screen = "feed"; render(); }},"Ir para o app")));
   }
   const groupPill = () => { const g = curGroup(); if (!g) return null;
     return el("button",{class:"chip",style:{alignSelf:"flex-start",display:"flex",alignItems:"center",gap:"8px",height:"38px"},onclick:() => { S.sheet = {type:"grupo"}; render(); }},
@@ -852,7 +852,7 @@
   }
 
   function navBar() {
-    const def = [["videos","Vídeos"],["feed","Roteiro"],["nova",""],["agenda","Agenda"]];
+    const def = [["feed","Roteiro"],["nova",""],["agenda","Agenda"]];
     return el("nav",{class:"nav",style:{gridTemplateColumns:`repeat(${def.length},1fr)`}}, def.map(([k,l]) =>
       el("button",{class:(S.screen === k ? "on" : "") + (k === "nova" ? " plus" : ""), onclick:() => { if (k === "nova") { if (!isPremium() && S.trends.length >= 3) { S.sheet = {type:"premium", limite:"trend"}; render(); return; } S.form = null; S.editing = null; } go(k); }},
         el("span",{class:"ic",html:ICONS[k]}), el("span",{text:l}))));
@@ -925,7 +925,7 @@
     } else if (s.type === "excluir") {
       const nT = S.trends.filter(t => t.owner === S.uid).length, nC = S.coments.filter(c => c.user_id === S.uid).length, nV = S.videos.filter(v => v.owner === S.uid).length;
       content = [sKick("NÃO DÁ PARA DESFAZER", "#FF5A61"), sTitle("Excluir minha conta?"), sText("Vamos apagar:"),
-        infoTable([["Seu nome e login do Google", S.me.nome], ["Trends criadas por você", String(nT)], ["Seus comentários", String(nC)], ["Vídeos que você enviou", String(nV)]]),
+        infoTable([["Seu nome e login do Google", S.me.nome], ["Trends criadas por você", String(nT)], ["Seus comentários", String(nC)]]),
         g && g.owner === S.uid ? sText("Os grupos que você criou continuam para as outras pessoas.") : null,
         el("button",{class:"btn-red",disabled:S.busy,onclick:deleteAccount}, S.busy ? "Excluindo…" : "Excluir minha conta"),
         el("button",{class:"btn-line",onclick:() => go2({type:"conta"})},"Cancelar")];
@@ -1255,7 +1255,7 @@
     else if (!S.grupo) nodes = [noGroupScreen()];
     else {
       if (S.screen === "nova" && !S.form) S.form = blankForm();
-      const view = {feed:feedScreen, nova:novaScreen, videos:videosScreen, agenda:agendaScreen}[S.screen] || videosScreen;
+      const view = {feed:feedScreen, nova:novaScreen, agenda:agendaScreen}[S.screen] || feedScreen;
       nodes = [el("div",{class:"scroll"}, view()), navBar(), sheetLayer(), viewerLayer()];
     }
     $root.replaceChildren(...nodes.filter(Boolean));
