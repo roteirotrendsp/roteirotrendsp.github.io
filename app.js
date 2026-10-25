@@ -28,12 +28,11 @@
     grupos:[], grupo:null, membros:[],
     pubs:[], reacoes:[], minhasDen:new Set(), myPubs:{}, exOrdem:"alta", exDia:"todos", exLoaded:false,
     profiles:{}, trends:[], votos:[], videos:[], videosMissing:false, coments:[], reacItem:[], curtidas:[], curtidasOff:false, comMissing:false,
-    screen:"feed", filter:"todas", day:null, toast:null,
+    screen:"videos", filter:"todas", day:null, toast:null,
     form:null, errors:{}, editing:null, sheet:null, viewer:null, busy:false
   };
   const store = { get:k => { try { return localStorage.getItem(k); } catch(e) { return null; } },
                   set:(k,v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch(e) {} } };
-  { const s = store.get("trends-screen"); if (["feed","agenda","videos"].includes(s)) S.screen = s; }
   S.grupo = store.get("trends-grupo");
   S.onlyMine = store.get("trends-minhas") === "1";
   // Link de convite: ?convite=CODIGO — guardado até a pessoa entrar com o Google
@@ -216,7 +215,7 @@
   function switchGroup(id) {
     S.grupo = id; store.set("trends-grupo", id); S.sheet = null; S.filter = "todas"; S.day = null;
     S.trends = []; S.votos = []; S.videos = []; S.membros = []; S.profiles = {}; lastSig = "";
-    S.screen = "feed"; render(); loadAll();
+    S.screen = "videos"; render(); loadAll();
   }
   async function shareInvite(g) {
     const url = inviteUrl(g), text = `Entra no nosso grupo “${g.nome}” no Roteiro de Trends! Código: ${fmtCode(g.codigo)}`;
@@ -540,6 +539,13 @@
     return el("button",{class:"chip",style:{alignSelf:"flex-start",display:"flex",alignItems:"center",gap:"8px",height:"38px"},onclick:() => { S.sheet = {type:"grupo"}; render(); }},
       el("span",{style:{width:"8px",height:"8px",borderRadius:"50%",background:PURPLE}}), g.nome, el("span",{text:`${groupSize()} ${groupSize() === 1 ? "pessoa" : "pessoas"} · convidar ▾`})); };
 
+  // Topo comum: botão do grupo (abre a janela do grupo) e o círculo da conta
+  const topBar = () => { const g = curGroup();
+    return el("div",{class:"topbar"},
+      el("div",{class:"topbar-l"},
+        el("button",{class:"grpbtn",onclick:() => { S.sheet = {type:"grupo"}; render(); }}, el("span",{class:"nm",text:g ? g.nome : ""}), el("span",{class:"car",text:"▼"}))),
+      meButton()); };
+
   function daysLeftText() {
     const sd = showDate(), lbl = `${dd(sd)}/${sd.slice(5,7)}`, n = Math.round((dObj(sd) - dObj(todaySP())) / 864e5);
     return n > 1 ? `FALTAM ${n} DIAS · ${lbl}` : n === 1 ? `FALTA 1 DIA · ${lbl}` : n === 0 ? `É HOJE · ${lbl}` : `DEPOIS DO SHOW · ${lbl}`;
@@ -580,12 +586,7 @@
     } catch(e) {}
     const g = curGroup(), emAnalise = !isPremium() && S.pagamentos.some(p => p.status === "pendente");
     return el("div",{class:"stack"},
-      el("div",{class:"topbar"},
-        el("div",{class:"topbar-l"},
-          el("button",{class:"grpbtn",onclick:() => { S.sheet = {type:"grupo"}; render(); }}, el("span",{class:"nm",text:g ? g.nome : ""}), el("span",{class:"car",text:"▼"})),
-          null),
-        meButton()),
-      el("div",{}, el("div",{class:"eyebrow",style:{color:RED},text:daysLeftText()}), el("h1",{class:"h1",text:"Roteiro"})),
+      topBar(),
       installHint,
       el("div",{class:"chips"},
         el("button",{class:"chip" + (S.onlyMine ? " on" : ""), style:{borderColor: S.onlyMine ? null : PURPLE}, "aria-pressed":String(!!S.onlyMine),
@@ -704,9 +705,8 @@
       if (S.trends.length) { S.sheet = {type:"qualtrend", file:f}; render(); } else uploadVideo(f, null);
     }});
     return el("div",{class:"stack"},
-      el("div",{class:"head"},
-        el("div",{}, el("div",{class:"eyebrow",style:{color:PURPLE},text:`${S.videos.length} ${S.videos.length === 1 ? "VÍDEO" : "VÍDEOS"} DO GRUPO`}), el("h1",{class:"h1",text:"Nossos vídeos"})),
-        meButton()),
+      topBar(),
+      el("div",{}, el("div",{class:"eyebrow",style:{color:PURPLE},text:`${S.videos.length} ${S.videos.length === 1 ? "VÍDEO" : "VÍDEOS"} DO GRUPO`}), el("h1",{class:"h1",text:"Nossos vídeos"})),
       S.videosMissing ? el("div",{class:"empty",text:"A galeria ainda não foi ativada no banco."}) : null,
       temVideos()
         ? [el("button",{class:"upload",disabled:S.videosMissing,onclick:() => file.click()},"+ Enviar vídeo"), file]
@@ -769,8 +769,7 @@
   }
 
   function navBar() {
-    const def = [["feed","Roteiro"],["agenda","Agenda"],["nova","Nova"]];
-    def.push(["videos","Vídeos"]);
+    const def = [["videos","Vídeos"],["feed","Roteiro"],["nova","Nova"],["agenda","Agenda"]];
     return el("nav",{class:"nav",style:{gridTemplateColumns:`repeat(${def.length},1fr)`}}, def.map(([k,l]) =>
       el("button",{class:(S.screen === k ? "on" : "") + (k === "nova" ? " plus" : ""), onclick:() => { if (k === "nova") { if (!isPremium() && S.trends.length >= 3) { S.sheet = {type:"premium", limite:"trend"}; render(); return; } S.form = null; S.editing = null; } go(k); }},
         el("span",{class:"ic",html:ICONS[k]}), el("span",{text:l}))));
@@ -1152,7 +1151,7 @@
     else if (!S.grupo) nodes = [noGroupScreen()];
     else {
       if (S.screen === "nova" && !S.form) S.form = blankForm();
-      const view = {feed:feedScreen, nova:novaScreen, videos:videosScreen, agenda:agendaScreen}[S.screen] || feedScreen;
+      const view = {feed:feedScreen, nova:novaScreen, videos:videosScreen, agenda:agendaScreen}[S.screen] || videosScreen;
       nodes = [el("div",{class:"scroll"}, view()), navBar(), sheetLayer(), viewerLayer()];
     }
     $root.replaceChildren(...nodes.filter(Boolean));
