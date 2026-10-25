@@ -653,7 +653,8 @@
 
   function feedScreen() {
     const order = t => DAYS.indexOf(t.dia);
-    const all = [...S.trends].sort((a,b) => order(a) - order(b));
+    // Mais nova no topo
+    const all = [...S.trends].sort((a,b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const match = (t, k) => k === "todas" || (k === "minhas" ? t.owner === S.uid : (t.status || "a_gravar") === k);
     const list = all.filter(t => match(t, S.filter));
     const counts = k => all.filter(t => match(t, k)).length;
