@@ -71,15 +71,19 @@
   const wd = iso => WD[dObj(iso).getUTCDay()];
   const dayLabel = iso => `${wd(iso)} ${dd(iso)}/${iso.slice(5,7)}`;
 
+  // ——— Links de vídeo (TikTok e Instagram) ———
+  // Aceita o link sozinho ou com texto junto (o celular às vezes copia uma frase + o link)
+  const extrairLink = l => { const m = String(l || "").match(/https?:\/\/[^\s<>"']+/i); return m ? m[0].replace(/[),.;!]+$/, "") : String(l || "").trim(); };
   const tiktokId = l => {
     const s = safeTiktok(l); if (!s) return null;
     const m = s.match(/\/video\/(\d+)/); if (m) return m[1];
     const c = tkCache[s]; return c && c.id ? c.id : null;
   };
-  // Links curtos do TikTok (vm.tiktok.com/..., tiktok.com/t/...) são resolvidos pela função do Supabase
+  // Links curtos (vm.tiktok.com, tiktok.com/t/, instagram.com/share/...) são resolvidos pela função do Supabase
   const tkCache = {};
-  function resolverTiktok(link) {
-    const s = safeTiktok(link); if (!s || /\/video\/\d+/.test(s) || !S.sb || !S.sb.functions) return Promise.resolve(null);
+  function resolverLink(link) {
+    const s = (safeTiktok(link) && !/\/video\/\d+/.test(safeTiktok(link)) && safeTiktok(link)) || igShare(link);
+    if (!s || !S.sb || !S.sb.functions) return Promise.resolve(null);
     if (tkCache[s]) return tkCache[s].p;
     const p = S.sb.functions.invoke("resolver-tiktok", {body:{url:s}})
       .then(({data}) => { tkCache[s].id = data && data.id || null; tkCache[s].url = data && data.url || null; tkCache[s].ok = true; return tkCache[s]; })
@@ -88,21 +92,22 @@
     p.then(r => { if (r && r.id) softRender(); else if (S.screen === "nova") render(); });
     return p;
   }
+  const resolverTiktok = resolverLink;
   const tiktokHandle = l => { const m = (l || "").match(/tiktok\.com\/(@[\w.\-]+)/); return m ? m[1] : "TikTok"; };
-  const isTiktok = l => /^https?:\/\/([\w-]+\.)?tiktok\.com\//i.test((l || "").trim());
-  // Instagram: Reels e posts com vídeo (instagram.com/reel/CODIGO, /reels/, /p/, /tv/)
+  const isTiktok = l => !!safeTiktok(l);
+  // Instagram: Reels e posts com vídeo, com ou sem o nome da conta no meio do link
+  const igUrl = l => { try { const u = new URL(extrairLink(l)); return u.protocol === "https:" && /^(www\.|m\.)?instagram\.com$/i.test(u.hostname) ? u : null; } catch(e) { return null; } };
+  const igShare = l => { const u = igUrl(l); return u && /^\/share\//i.test(u.pathname) ? `https://www.instagram.com${u.pathname}` : null; };
   const igInfo = l => {
-    try {
-      const u = new URL((l || "").trim());
-      if (u.protocol !== "https:" || !/^(www\.)?instagram\.com$/i.test(u.hostname)) return null;
-      const m = u.pathname.match(/^\/(reels?|p|tv)\/([A-Za-z0-9_-]+)/); if (!m) return null;
-      const tipo = m[1].startsWith("reel") ? "reel" : m[1];
-      return {tipo, code:m[2], url:`https://www.instagram.com/${tipo}/${m[2]}/`};
-    } catch(e) { return null; }
+    const u = igUrl(l); if (!u) return null;
+    if (/^\/share\//i.test(u.pathname)) { const c = tkCache[igShare(l)]; return c && c.url ? igInfo(c.url) : null; }
+    const m = u.pathname.match(/\/(reels?|p|tv)\/([A-Za-z0-9_-]{5,})/); if (!m) return null;
+    const tipo = m[1].startsWith("reel") ? "reel" : m[1];
+    return {tipo, code:m[2], url:`https://www.instagram.com/${tipo}/${m[2]}/`};
   };
-  const linkValido = l => !!(safeTiktok(l) || igInfo(l));
+  const linkValido = l => !!(safeTiktok(l) || igInfo(l) || igShare(l));
   // Só aceita links https de verdade do TikTok (bloqueia "javascript:" e outros truques)
-  const safeTiktok = l => { try { const u = new URL((l || "").trim()); return u.protocol === "https:" && /(^|\.)tiktok\.com$/i.test(u.hostname) ? u.href : null; } catch(e) { return null; } };
+  const safeTiktok = l => { try { const u = new URL(extrairLink(l)); return u.protocol === "https:" && /(^|\.)tiktok\.com$/i.test(u.hostname) ? u.href : null; } catch(e) { return null; } };
   const videoUrl = path => S.sb.storage.from("videos").getPublicUrl(path).data.publicUrl;
   const gcalUrl = t => {
     const d = t.dia.replace(/-/g,""), n = dObj(t.dia); n.setUTCDate(n.getUTCDate()+1);
@@ -755,7 +760,7 @@
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Link do TikTok ou do Instagram"}),
         input("link","f-link","https://www.tiktok.com/@.../video/...", e.link ? "bad" : lid ? "good" : ""),
         e.link ? el("span",{class:"err",text:e.link}) : ig ? [el("span",{class:"ok",style:{display:"flex",alignItems:"center",gap:"8px"}}, platTag(f.link), "reconhecido · é assim que vai aparecer no card"), igPlayer(ig, "embed preview")] : lid ? [el("span",{class:"ok",style:{display:"flex",alignItems:"center",gap:"8px"}}, platTag(f.link), "reconhecido · é assim que vai aparecer no card"), tiktokPlayer(lid, "embed preview")]
-          : f.link && safeTiktok(f.link) ? ((c => { resolverTiktok(f.link); return el("span",{class:"ok",text: c && c.ok ? "Não achamos o vídeo desse link. Confira se o link está certo." : "Buscando o vídeo…"}); })(tkCache[safeTiktok(f.link)])) : null),
+          : f.link && (safeTiktok(f.link) || igShare(f.link)) ? ((c => { resolverLink(f.link); return el("span",{class:"ok",text: c && c.ok ? "Não achamos o vídeo desse link. Confira se o link está certo." : "Buscando o vídeo…"}); })(tkCache[safeTiktok(f.link) || igShare(f.link)])) : null),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Nome da trend"}), input("name","f-name","Ex.: coreô do refrão na fila", e.name ? "bad" : "")),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Música"}), input("song","f-song","Ex.: SWIM — BTS")),
       el("div",{class:"field"}, el("span",{class:"eyebrow",text:"Dia"}),
