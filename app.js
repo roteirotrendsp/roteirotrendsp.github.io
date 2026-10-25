@@ -31,7 +31,7 @@
     pubs:[], reacoes:[], minhasDen:new Set(), myPubs:{}, exOrdem:"alta", exDia:"todos", exLoaded:false,
     profiles:{}, trends:[], votos:[], videos:[], videosMissing:false, coments:[], reacItem:[], curtidas:[], curtidasOff:false, comMissing:false,
     screen:"videos", filter:"todas", day:null, toast:null,
-    form:null, errors:{}, editing:null, sheet:null, viewer:null, viewerAsk:false, durs:{}, busy:false
+    form:null, errors:{}, editing:null, sheet:null, viewer:null, viewerAsk:false, durs:{}, notifs:[], notifNomes:{}, busy:false
   };
   const store = { get:k => { try { return localStorage.getItem(k); } catch(e) { return null; } },
                   set:(k,v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch(e) {} } };
@@ -71,7 +71,23 @@
   const wd = iso => WD[dObj(iso).getUTCDay()];
   const dayLabel = iso => `${wd(iso)} ${dd(iso)}/${iso.slice(5,7)}`;
 
-  const tiktokId = l => { const s = safeTiktok(l); const m = s && s.match(/\/video\/(\d+)/); return m ? m[1] : null; };
+  const tiktokId = l => {
+    const s = safeTiktok(l); if (!s) return null;
+    const m = s.match(/\/video\/(\d+)/); if (m) return m[1];
+    const c = tkCache[s]; return c && c.id ? c.id : null;
+  };
+  // Links curtos do TikTok (vm.tiktok.com/..., tiktok.com/t/...) são resolvidos pela função do Supabase
+  const tkCache = {};
+  function resolverTiktok(link) {
+    const s = safeTiktok(link); if (!s || /\/video\/\d+/.test(s) || !S.sb || !S.sb.functions) return Promise.resolve(null);
+    if (tkCache[s]) return tkCache[s].p;
+    const p = S.sb.functions.invoke("resolver-tiktok", {body:{url:s}})
+      .then(({data}) => { tkCache[s].id = data && data.id || null; tkCache[s].url = data && data.url || null; tkCache[s].ok = true; return tkCache[s]; })
+      .catch(() => { tkCache[s].ok = true; return tkCache[s]; });
+    tkCache[s] = {p, id:null, url:null, ok:false};
+    p.then(r => { if (r && r.id) softRender(); else if (S.screen === "nova") render(); });
+    return p;
+  }
   const tiktokHandle = l => { const m = (l || "").match(/tiktok\.com\/(@[\w.\-]+)/); return m ? m[1] : "TikTok"; };
   const isTiktok = l => /^https?:\/\/([\w-]+\.)?tiktok\.com\//i.test((l || "").trim());
   // Só aceita links https de verdade do TikTok (bloqueia "javascript:" e outros truques)
@@ -138,6 +154,7 @@
         }
       }
       if (!S.grupos.some(g => g.id === S.grupo)) { S.grupo = S.grupos.length ? S.grupos[0].id : null; store.set("trends-grupo", S.grupo); }
+      await loadAvisos();
       if (!S.grupo) { S.membros = []; S.profiles = {}; S.trends = []; S.votos = []; S.videos = []; }
       else {
         const [m, i, v, vid] = await Promise.all([
@@ -173,7 +190,7 @@
         S.videos = vid.error ? [] : vid.data;
       }
       S.loaded = true;
-      const sig = JSON.stringify([S.me, S.grupos, S.grupo, S.membros, S.profiles, S.trends, S.votos, S.videos, S.coments, S.reacItem, S.curtidas, S.pagamentos]);
+      const sig = JSON.stringify([S.me, S.grupos, S.grupo, S.membros, S.profiles, S.trends, S.votos, S.videos, S.coments, S.reacItem, S.curtidas, S.pagamentos, S.notifs]);
       if (sig !== lastSig) { lastSig = sig; softRender(); }
     } finally { loading = false; }
   }
@@ -201,6 +218,31 @@
       if (sig !== exSig) { exSig = sig; softRender(); }
     } finally { exLoading = false; }
   }
+  // Avisos dentro do app ("Fulana entrou no grupo")
+  const avisosMostrados = new Set();
+  async function loadAvisos() {
+    const nq = await S.sb.from("notificacoes").select("id,grupo_id,tipo,ator_id,lida,created_at").order("created_at", {ascending:false}).limit(30);
+    if (nq.error) { S.notifs = []; return; }
+    S.notifs = nq.data;
+    const faltam = [...new Set(S.notifs.map(n => n.ator_id))].filter(id => id && !S.notifNomes[id]);
+    if (faltam.length) {
+      const p = await S.sb.from("profiles").select("id,nome").in("id", faltam);
+      (p.data || []).forEach(r => S.notifNomes[r.id] = r.nome);
+    }
+    const novas = S.notifs.filter(n => !n.lida && !avisosMostrados.has(n.id));
+    novas.forEach(n => avisosMostrados.add(n.id));
+    if (novas.length === 1) flash(textoAviso(novas[0]) + " 💜");
+    else if (novas.length > 1) flash(`${novas.length} pessoas entraram nos seus grupos 💜 Toque no sininho para ver.`);
+  }
+  const nomeAtor = id => S.notifNomes[id] || nameOf(id);
+  const nomeGrupo = id => (S.grupos.find(g => g.id === id) || {}).nome || "seu grupo";
+  const textoAviso = n => `${nomeAtor(n.ator_id)} entrou no grupo ${nomeGrupo(n.grupo_id)}`;
+  async function marcarAvisosLidos() {
+    if (!S.notifs.some(n => !n.lida)) return;
+    S.notifs = S.notifs.map(n => ({...n, lida:true}));
+    await S.sb.from("notificacoes").update({lida:true}).eq("user_id", S.uid).eq("lida", false);
+  }
+
   // Atualiza a cada 12 s com o app aberto (sem conexão ao vivo, que tem limite no plano grátis)
   const refresh = () => loadAll();
   setInterval(() => { if (S.uid && !document.hidden) refresh(); }, 12000);
@@ -252,8 +294,9 @@
     S.errors = e;
     if (Object.keys(e).length) return render();
     S.busy = true; render();
+    const curto = await resolverTiktok(f.link);
     const row = { dia:f.day, categoria:"trend", titulo:f.name.trim(), musica:f.song.trim() || null, local:f.place.trim(),
-      participantes: S.editing ? f.people : S.membros.map(m => m.user_id), ref_link:safeTiktok(f.link) };
+      participantes: S.editing ? f.people : S.membros.map(m => m.user_id), ref_link:(curto && curto.url) || safeTiktok(f.link) };
     const r = S.editing
       ? await S.sb.from("itens").update(row).eq("id", S.editing)
       : await S.sb.from("itens").insert({id: uuid(), status:"a_gravar", grupo_id:S.grupo, ...row});
@@ -545,7 +588,12 @@
     return el("div",{class:"topbar"},
       el("div",{class:"topbar-l"},
         el("button",{class:"grpbtn",onclick:() => { S.sheet = {type:"grupo"}; render(); }}, el("span",{class:"nm",text:g ? g.nome : ""}), el("span",{class:"car",text:"▼"}))),
-      meButton()); };
+      el("div",{style:{display:"flex",gap:"10px",alignItems:"center",flex:"none"}},
+        (() => { const n = S.notifs.filter(x => !x.lida).length;
+          return el("button",{class:"bell","aria-label": n ? `Avisos, ${n} novos` : "Avisos",onclick:() => { S.sheet = {type:"avisos"}; render(); marcarAvisosLidos(); }},
+            el("span",{html:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>'}),
+            n ? el("span",{class:"dot",text: n > 9 ? "9+" : String(n)}) : null); })(),
+        meButton())); };
 
   function daysLeftText() {
     const sd = showDate(), lbl = `${dd(sd)}/${sd.slice(5,7)}`, n = Math.round((dObj(sd) - dObj(todaySP())) / 864e5);
@@ -564,6 +612,7 @@
     if (id) return tiktokPlayer(id);
     const href = safeTiktok(t.ref_link);
     if (!href) return null;
+    resolverTiktok(href);
     return el("a",{class:"poster", href, target:"_blank", rel:"noopener noreferrer"},
       el("div",{class:"playb",text:"▶"}),
       el("div",{class:"cap",text:`abrir no TikTok ↗ · ${tiktokHandle(t.ref_link)}`}));
@@ -678,7 +727,7 @@
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Link do TikTok"}),
         input("link","f-link","https://www.tiktok.com/@.../video/...", e.link ? "bad" : lid ? "good" : ""),
         e.link ? el("span",{class:"err",text:e.link}) : lid ? [el("span",{class:"ok",text:"Vídeo reconhecido · é assim que vai aparecer no card"}), tiktokPlayer(lid, "embed preview")]
-          : f.link && safeTiktok(f.link) ? el("span",{class:"ok",text:"Link curto: vai abrir no TikTok. Para tocar no app, use o link completo com /video/."}) : null),
+          : f.link && safeTiktok(f.link) ? ((c => { resolverTiktok(f.link); return el("span",{class:"ok",text: c && c.ok ? "Não achamos o vídeo desse link. Confira se o link está certo." : "Buscando o vídeo…"}); })(tkCache[safeTiktok(f.link)])) : null),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Nome da trend"}), input("name","f-name","Ex.: coreô do refrão na fila", e.name ? "bad" : "")),
       el("label",{class:"field"}, el("span",{class:"eyebrow",text:"Música"}), input("song","f-song","Ex.: SWIM — BTS")),
       el("div",{class:"field"}, el("span",{class:"eyebrow",text:"Dia"}),
@@ -829,6 +878,16 @@
         ]),
         el("button",{class:"lnk danger",style:{alignSelf:"center",padding:"6px",fontSize:"13px"},onclick:() => go2({type:"excluir"})},"Excluir minha conta")];
 
+    } else if (s.type === "avisos") {
+      content = [sKick("AVISOS"), sTitle("Novidades dos seus grupos"),
+        S.notifs.length ? el("div",{style:{display:"flex",flexDirection:"column"}}, S.notifs.map(n => {
+          const [bg, fg] = colorOf(n.ator_id);
+          return el("div",{class:"memrow"},
+            el("div",{class:"av",style:{width:"40px",height:"40px",fontSize:"15px",border:"0",background:bg,color:fg},text:(nomeAtor(n.ator_id).trim()[0] || "?").toUpperCase()}),
+            el("div",{style:{display:"flex",flexDirection:"column",gap:"2px",minWidth:0}},
+              el("span",{style:{fontSize:"15px",lineHeight:"1.35"}}, el("b",{text:nomeAtor(n.ator_id)}), " entrou no grupo ", el("b",{text:nomeGrupo(n.grupo_id)})),
+              el("span",{class:"mono",style:{fontSize:"10.5px",color:"#7A7270"},text:quando(n.created_at)})));
+        })) : el("span",{class:"stx",text:"Nenhum aviso ainda. Quando alguém entrar num dos seus grupos pelo convite, você fica sabendo aqui."})];
     } else if (s.type === "excluir") {
       const nT = S.trends.filter(t => t.owner === S.uid).length, nC = S.coments.filter(c => c.user_id === S.uid).length, nV = S.videos.filter(v => v.owner === S.uid).length;
       content = [sKick("NÃO DÁ PARA DESFAZER", "#FF5A61"), sTitle("Excluir minha conta?"), sText("Vamos apagar:"),
